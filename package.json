@@ -1,0 +1,30 @@
+{
+  "name": "@archway/create-valet-app",
+  "version": "0.1.0",
+  "description": "Scaffold a valet app using React + Vite (TS by default)",
+  "type": "module",
+  "bin": {
+    "create-valet-app": "./bin/create-valet-app.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "valet",
+    "react",
+    "vite",
+    "scaffold",
+    "starter",
+    "create"
+  ],
+  "author": "Off Court Creations",
+  "license": "MIT",
+  "files": [
+    "bin",
+    "templates"
+  ],
+  "scripts": {
+    "dev": "node bin/create-valet-app.js --help",
+    "validate": "node scripts/validate.mjs"
+  }
+}
