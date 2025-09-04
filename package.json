@@ -26,5 +26,12 @@
   "scripts": {
     "dev": "node bin/create-valet-app.js --help",
     "validate": "node scripts/validate.mjs"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "enquirer": "^2.4.1",
+    "figlet": "^1.7.0",
+    "gradient-string": "^2.0.2",
+    "ora": "^8.0.1"
   }
 }

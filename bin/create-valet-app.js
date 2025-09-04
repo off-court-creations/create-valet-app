@@ -9,13 +9,51 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
-import readline from 'node:readline';
+// readline not used with enquirer prompts
+import chalk from 'chalk';
+import enquirer from 'enquirer';
+import ora from 'ora';
+import gradient from 'gradient-string';
+import figlet from 'figlet';
 
 const require = createRequire(import.meta.url);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PKG = readJSONSafe(path.join(__dirname, '..', 'package.json')) || {};
+
+// ─────────────────────────────────────────────────────────────
+// Styling helpers
+const COLORS = {
+  goAwayGreen: '#8E9A76', // Disney "Go Away Green" (approx)
+  noSeeUmGray: '#A3A3A2', // Disney "No-See-Um Gray" (approx)
+};
+
+const mark = {
+  info: chalk.cyan('›'),
+  warn: chalk.yellow('!'),
+  error: chalk.red('✖'),
+  ok: chalk.green('✔'),
+};
+
+function isInteractive() {
+  return process.stdin.isTTY && process.stdout.isTTY && process.env.CVA_NONINTERACTIVE !== '1';
+}
+
+function banner() {
+  const titleText = 'Create Valet App';
+  try {
+    const ascii = figlet.textSync(titleText, { font: 'ANSI Shadow', width: 100 });
+    const grad = gradient(COLORS.goAwayGreen, COLORS.noSeeUmGray)(ascii);
+    console.log('\n' + grad);
+  } catch {
+    const title = chalk.bold.bgCyan.black(`  ${titleText}  `);
+    console.log();
+    console.log(`${title} ${chalk.dim(`v${PKG.version || 'dev'}`)}`);
+  }
+  console.log(chalk.dim('Scaffold React + Vite the classy way'));
+  console.log();
+}
 
 function readJSONSafe(p) {
   try {
@@ -25,13 +63,50 @@ function readJSONSafe(p) {
   }
 }
 
-function log(...args) { console.log('[cva]', ...args); }
-function err(...args) { console.error('[cva]', ...args); }
+function log(...args) { console.log(mark.info, ...args); }
+function err(...args) { console.error(mark.error, ...args); }
+
+function step(msg) { console.log(chalk.dim('•'), chalk.bold(msg)); }
+function done(msg) { console.log(mark.ok, msg); }
+
+async function withSpinner(text, fn) {
+  if (!isInteractive()) {
+    step(text);
+    const res = await fn();
+    return res;
+  }
+  const spinner = ora({ text, color: 'green' }).start();
+  try {
+    const res = await fn();
+    spinner.succeed(text);
+    return res;
+  } catch (e) {
+    spinner.fail(text);
+    throw e;
+  }
+}
 
 function usage() {
-  console.log(`\n@archway/create-valet-app v${PKG.version || 'dev'}\n\n` +
-`Usage:\n  npx @archway/create-valet-app <dir> [options]\n  npm create @archway/valet-app <dir> [options]\n\n` +
-`Options:\n  --template ts|js|hybrid   Choose template (default: ts)\n  --no-install             Skip dependency install (default runs install)\n  --pm npm|pnpm|yarn|bun    Choose package manager (default: auto-detect/npm)\n  --git                     Initialize git repo\n  --mcp                     Enable valet MCP guidance (default; attempts global @archway/valet-mcp install; offers to update ~/.codex/config.toml)\n  --no-mcp                  Disable MCP guidance (skips AGENTS.md and global install)\n  --router | --no-router    Include React Router (default: --router)\n  --zustand | --no-zustand  Include Zustand store (default: --zustand)\n  --minimal                 Minimal files (single page; trims extras)\n  --path-alias <token>      Import alias token for src (default: @)\n  -h, --help                Show help\n`);
+  console.log();
+  console.log(chalk.bold('Create Valet App'), chalk.dim(`v${PKG.version || 'dev'}`));
+  console.log();
+  console.log(chalk.bold('Usage:'));
+  console.log('  ', chalk.cyan('npx @archway/create-valet-app'), chalk.gray('<dir> [options]'));
+  console.log('  ', chalk.cyan('npm create @archway/valet-app'), chalk.gray('<dir> [options]'));
+  console.log();
+  console.log(chalk.bold('Options:'));
+  console.log('  ', chalk.green('--template'), chalk.gray('ts|js|hybrid   Choose template (default: ts)'));
+  console.log('  ', chalk.green('--no-install'), chalk.gray('Skip dependency install (default runs install)'));
+  console.log('  ', chalk.green('--pm'), chalk.gray('npm|pnpm|yarn|bun    Package manager (default: auto)'));
+  console.log('  ', chalk.green('--git'), chalk.gray('Initialize git repo'));
+  console.log('  ', chalk.green('--mcp'), chalk.gray('Enable valet MCP guidance (default)'));
+  console.log('  ', chalk.green('--no-mcp'), chalk.gray('Disable MCP guidance'));
+  console.log('  ', chalk.green('--router|--no-router'), chalk.gray('Include React Router (default: --router)'));
+  console.log('  ', chalk.green('--zustand|--no-zustand'), chalk.gray('Include Zustand store (default: --zustand)'));
+  console.log('  ', chalk.green('--minimal'), chalk.gray('Minimal files (single page; trims extras)'));
+  console.log('  ', chalk.green('--path-alias'), chalk.gray('<token>     Import alias for src (default: @)'));
+  console.log('  ', chalk.green('-h, --help'), chalk.gray('Show help'));
+  console.log();
 }
 
 function parseArgs(argv) {
@@ -85,7 +160,10 @@ function ensureNodeVersion() {
 
 function resolvePM(preferred) {
   if (preferred) return preferred;
-  // crude auto-detect: respect npm if no lock, else infer
+  const ua = process.env.npm_config_user_agent || '';
+  if (/pnpm\//.test(ua)) return 'pnpm';
+  if (/yarn\//.test(ua)) return 'yarn';
+  if (/bun\//.test(ua)) return 'bun';
   return 'npm';
 }
 
@@ -114,7 +192,20 @@ function run(cmd, args, opts = {}) {
 async function main() {
   ensureNodeVersion();
   const opts = parseArgs(process.argv);
-  if (opts.help || !opts.dir) { usage(); process.exit(opts.dir ? 0 : 1); }
+  const interactive = process.stdin.isTTY && process.stdout.isTTY && process.env.CVA_NONINTERACTIVE !== '1';
+
+  if (opts.help) { usage(); process.exit(0); }
+
+  // Friendly banner for interactive sessions
+  if (interactive) banner();
+
+  // Interactive prompt when no directory provided
+  if (!opts.dir && interactive) {
+    const answers = await promptForOptions(opts);
+    Object.assign(opts, answers);
+  }
+
+  if (!opts.dir) { usage(); process.exit(1); }
 
   if (!['ts', 'js', 'hybrid'].includes(opts.template)) {
     err(`Unknown template '${opts.template}'. Use: ts | js | hybrid`);
@@ -128,46 +219,57 @@ async function main() {
   }
   fs.mkdirSync(targetDir, { recursive: true });
 
-  // Copy template
-  const templateRoot = path.join(__dirname, '..', 'templates', opts.template);
-  copyDir(templateRoot, targetDir);
+  await withSpinner('Scaffolding project', async () => {
+    // Copy template
+    const templateRoot = path.join(__dirname, '..', 'templates', opts.template);
+    copyDir(templateRoot, targetDir);
 
-  // Patch app package.json
-  const appPkgPath = path.join(targetDir, 'package.json');
-  const appPkg = readJSONSafe(appPkgPath);
-  if (!appPkg) {
-    err('Template package.json missing or invalid.');
-    process.exit(1);
-  }
-  appPkg.name = normalizePkgName(opts.dir);
-  writeJSON(appPkgPath, appPkg);
+    // Patch app package.json
+    const appPkgPath = path.join(targetDir, 'package.json');
+    const appPkg = readJSONSafe(appPkgPath);
+    if (!appPkg) {
+      err('Template package.json missing or invalid.');
+      process.exit(1);
+    }
+    appPkg.name = normalizePkgName(opts.dir);
+    writeJSON(appPkgPath, appPkg);
+  });
 
   // Apply feature toggles (router/zustand/minimal/path alias)
-  await applyFeatureToggles({ targetDir, template: opts.template, router: opts.router, zustand: opts.zustand, minimal: opts.minimal, pathAlias: opts.pathAlias });
+  await withSpinner('Applying options', async () => {
+    await applyFeatureToggles({ targetDir, template: opts.template, router: opts.router, zustand: opts.zustand, minimal: opts.minimal, pathAlias: opts.pathAlias });
+  });
 
   // Generate AGENTS.md from single source template unless --no-mcp
-  await generateAgentsDoc({
-    targetDir,
-    include: opts.mcp,
-    template: opts.template,
-    router: opts.router,
-    zustand: opts.zustand,
-    minimal: opts.minimal,
-    pathAlias: opts.pathAlias,
+  await withSpinner('Generating guidance', async () => {
+    await generateAgentsDoc({
+      targetDir,
+      include: opts.mcp,
+      template: opts.template,
+      router: opts.router,
+      zustand: opts.zustand,
+      minimal: opts.minimal,
+      pathAlias: opts.pathAlias,
+    });
   });
 
   // If MCP is enabled, attempt to install the valet MCP server globally
   if (opts.mcp) {
-    await installGlobalMCP();
+    await withSpinner('Installing MCP', async () => {
+      await installGlobalMCP();
+    });
+    // Run potential interactive config outside spinner to avoid UI conflicts
     await ensureMCPConfig();
   }
 
   // Git init (optional)
   if (opts.git) {
     try {
-      await run('git', ['init'], { cwd: targetDir });
-      await run('git', ['add', '.'], { cwd: targetDir });
-      await run('git', ['commit', '-m', 'init(create-valet-app): scaffold TS template'], { cwd: targetDir });
+      await withSpinner('Initializing git', async () => {
+        await run('git', ['init'], { cwd: targetDir });
+        await run('git', ['add', '.'], { cwd: targetDir });
+        await run('git', ['commit', '-m', 'init(create-valet-app): scaffold template'], { cwd: targetDir });
+      });
     } catch (e) {
       err('git init failed (continuing):', e.message);
     }
@@ -178,7 +280,9 @@ async function main() {
     const pm = resolvePM(opts.pm);
     const args = pm === 'npm' ? ['install'] : ['install'];
     try {
-      await run(pm, args, { cwd: targetDir });
+      await withSpinner(`Installing dependencies (${pm})`, async () => {
+        await run(pm, args, { cwd: targetDir });
+      });
     } catch (e) {
       err(`${pm} install failed (continuing):`, e.message);
     }
@@ -186,12 +290,12 @@ async function main() {
 
   // Final handoff
   console.log();
-  log('Success! Created a Valet app at:', targetDir);
+  log(chalk.bold.green('Success!'), 'Created a Valet app at', chalk.cyan(targetDir));
   console.log();
-  console.log('Next steps:');
-  console.log(`  cd ${path.relative(process.cwd(), targetDir) || '.'}`);
-  if (!opts.install) console.log('  npm install');
-  console.log('  npm run dev');
+  console.log(chalk.bold('Next steps:'));
+  console.log('  ', chalk.gray('cd'), chalk.cyan(path.relative(process.cwd(), targetDir) || '.'));
+  if (!opts.install) console.log('  ', chalk.gray('npm install'));
+  console.log('  ', chalk.gray('npm run dev'));
   console.log();
 }
 
@@ -632,10 +736,10 @@ async function ensureMCPConfig() {
   }
 
   const question = exists
-    ? 'MCP is enabled, but ~/.codex/config.toml lacks a valet entry. Add it now? (Y/n) '
-    : 'MCP is enabled. Create ~/.codex/config.toml with a valet entry? (Y/n) ';
+    ? 'MCP enabled, but ~/.codex/config.toml lacks a valet entry. Add it now?'
+    : 'MCP enabled. Create ~/.codex/config.toml with a valet entry?';
 
-  const answer = await promptYesNo(question, true);
+  const answer = await promptConfirm(question, true);
   if (!answer) return;
 
   try {
@@ -643,20 +747,98 @@ async function ensureMCPConfig() {
     const prefix = exists && content.trim().length ? (content.endsWith('\n') ? '' : '\n') + '\n' : '';
     const next = (content || '') + prefix + block;
     fs.writeFileSync(configPath, next);
-    log('Updated', configPath, 'with valet MCP server.');
+    done(`Updated ${chalk.cyan(configPath)} with valet MCP server`);
   } catch (e) {
     err('Failed to update', configPath, '(continuing):', e.message);
   }
 }
 
-function promptYesNo(q, defYes = true) {
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    rl.question(q, (ans) => {
-      rl.close();
-      const a = String(ans || '').trim().toLowerCase();
-      if (!a) return resolve(defYes);
-      resolve(a === 'y' || a === 'yes');
-    });
-  });
+async function promptConfirm(message, initial = true) {
+  const { Confirm } = enquirer;
+  const prompt = new Confirm({ name: 'answer', message, initial });
+  const answer = await prompt.run();
+  return Boolean(answer);
+}
+
+async function promptForOptions(defaults) {
+  const { Select, Confirm, Input } = enquirer;
+
+  const dir = await new Input({
+    name: 'dir',
+    message: 'Project directory',
+    initial: defaults.dir || 'valet-app',
+  }).run();
+
+  const template = await new Select({
+    name: 'template',
+    message: 'Choose a template',
+    choices: [
+      { name: 'ts', message: 'TypeScript (recommended)' },
+      { name: 'js', message: 'JavaScript' },
+      { name: 'hybrid', message: 'Hybrid (TS + JS)' },
+    ],
+    initial: ['ts', 'js', 'hybrid'].indexOf(defaults.template || 'ts'),
+  }).run();
+
+  const router = await new Confirm({
+    name: 'router',
+    message: 'Include React Router?',
+    initial: defaults.router !== undefined ? defaults.router : true,
+  }).run();
+
+  const zustand = await new Confirm({
+    name: 'zustand',
+    message: 'Include Zustand store?',
+    initial: defaults.zustand !== undefined ? defaults.zustand : true,
+  }).run();
+
+  const minimal = await new Confirm({
+    name: 'minimal',
+    message: 'Minimal mode (single page)?',
+    initial: Boolean(defaults.minimal),
+  }).run();
+
+  const pathAlias = await new Input({
+    name: 'pathAlias',
+    message: 'Path alias token for src imports',
+    initial: defaults.pathAlias || '@',
+  }).run();
+
+  const git = await new Confirm({
+    name: 'git',
+    message: 'Initialize a git repository?',
+    initial: Boolean(defaults.git),
+  }).run();
+
+  const mcp = await new Confirm({
+    name: 'mcp',
+    message: 'Enable valet MCP guidance?',
+    initial: defaults.mcp !== undefined ? defaults.mcp : true,
+  }).run();
+
+  const install = await new Confirm({
+    name: 'install',
+    message: 'Install dependencies?',
+    initial: defaults.install !== undefined ? defaults.install : true,
+  }).run();
+
+  let pm = defaults.pm;
+  if (install) {
+    const detected = resolvePM();
+    pm = await new Select({
+      name: 'pm',
+      message: 'Package manager',
+      choices: [
+        { name: 'npm', message: 'npm' },
+        { name: 'pnpm', message: 'pnpm' },
+        { name: 'yarn', message: 'yarn' },
+        { name: 'bun', message: 'bun' },
+      ],
+      initial: ['npm', 'pnpm', 'yarn', 'bun'].indexOf(detected),
+    }).run();
+  }
+
+  console.log();
+  done('Configuration ready');
+  return { dir, template, router, zustand, minimal, pathAlias, git, mcp, install, pm };
 }
