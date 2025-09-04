@@ -2,6 +2,13 @@ Changelog
 
 All notable changes to this project are documented here.
 
+0.30.4 — 2025-09-04
+- Changed: Git repos initialize on `main` (no more `master` hints); falls back to branch rename when needed.
+- Changed: Cleaner output — suppresses git and package manager noise so steps show as concise checklists.
+- Changed: Global MCP install runs quietly; keeps scaffold output tidy.
+- Changed: Banner renders as three lines with gradient:
+  create → valet → app.
+
 0.30.3 — 2025-09-04
 - Added: Git initialization enabled by default with `--no-git` opt-out.
 - Added: Git identity checks; prompts to set local `user.name`/`user.email` when interactive; non-interactive runs skip initial commit with clear follow-ups.
@@ -20,4 +27,3 @@ All notable changes to this project are documented here.
 0.30.0 — 2025-09-03
 - Initial release: scaffold React + Vite app with TypeScript default, plus JS and Hybrid templates.
 - Features: Router/Zustand toggles, minimal mode, path alias, lint/format scripts, split TS configs, validation harness.
-

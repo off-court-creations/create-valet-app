@@ -41,17 +41,22 @@ function isInteractive() {
 }
 
 function banner() {
-  const titleText = 'Create Valet App';
+  const titleLines = ['create', 'valet', 'app'];
   try {
-    const ascii = figlet.textSync(titleText, { font: 'ANSI Shadow', width: 100 });
+    const ascii = titleLines
+      .map((t) => figlet.textSync(t, { font: 'ANSI Shadow', width: 100 }))
+      .join('\n');
     const grad = gradient(COLORS.goAwayGreen, COLORS.noSeeUmGray)(ascii);
     console.log('\n' + grad);
+    console.log(chalk.dim(`v${PKG.version || 'dev'}`));
   } catch {
-    const title = chalk.bold.bgCyan.black(`  ${titleText}  `);
     console.log();
-    console.log(`${title} ${chalk.dim(`v${PKG.version || 'dev'}`)}`);
+    for (const line of titleLines) {
+      console.log(chalk.bold.bgCyan.black(`  ${line}  `));
+    }
+    console.log(chalk.dim(`v${PKG.version || 'dev'}`));
   }
-  console.log(chalk.dim('Scaffold React + Vite the classy way'));
+  console.log(chalk.dim('React + Vite the valet way'));
   console.log();
 }
 
@@ -190,6 +195,19 @@ function run(cmd, args, opts = {}) {
   });
 }
 
+// Run a command while suppressing stdout/stderr. Returns a Promise that
+// resolves on success or rejects with the captured error output (if any).
+function runQuiet(cmd, args, opts = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], ...opts });
+    let out = '';
+    let errOut = '';
+    child.stdout.on('data', (d) => (out += d.toString()));
+    child.stderr.on('data', (d) => (errOut += d.toString()));
+    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(errOut.trim() || out.trim() || `${cmd} exited ${code}`))));
+  });
+}
+
 async function main() {
   ensureNodeVersion();
   const opts = parseArgs(process.argv);
@@ -259,7 +277,7 @@ async function main() {
 
   // If MCP is enabled, attempt to install the valet MCP server globally
   if (opts.mcp) {
-    await withSpinner('Installing MCP', async () => {
+      await withSpinner('Installing MCP', async () => {
       await installGlobalMCP();
     });
     // Run potential interactive config outside spinner to avoid UI conflicts
@@ -271,20 +289,25 @@ async function main() {
     try {
       await withSpinner('Initializing git', async () => {
         // verify git is available
-        try { await run('git', ['--version']); } catch {
+        try { await execCapture('git', ['--version']); } catch {
           throw new Error('git is not installed or not in PATH');
         }
 
-        // init repository
-        await run('git', ['init'], { cwd: targetDir });
+        // init repository with main as default branch (fallback to rename)
+        try {
+          await runQuiet('git', ['init', '-b', 'main'], { cwd: targetDir });
+        } catch {
+          await runQuiet('git', ['init'], { cwd: targetDir });
+          try { await runQuiet('git', ['branch', '-M', 'main'], { cwd: targetDir }); } catch {}
+        }
 
         // ensure identity, prompting locally if missing
         const identityReady = await ensureGitIdentity({ cwd: targetDir });
 
         // stage and (optionally) commit
-        await run('git', ['add', '.'], { cwd: targetDir });
+        await runQuiet('git', ['add', '.'], { cwd: targetDir });
         if (identityReady) {
-          await run('git', ['commit', '-m', 'init(create-valet-app): scaffold template'], { cwd: targetDir });
+          await runQuiet('git', ['commit', '-m', 'init(create-valet-app): scaffold template'], { cwd: targetDir });
         } else {
           log('Skipping initial commit. Tip: configure git identity then run:');
           console.log('   ', chalk.gray('git'), 'config user.name', chalk.cyan('"Your Name"'));
@@ -303,7 +326,7 @@ async function main() {
     const args = pm === 'npm' ? ['install'] : ['install'];
     try {
       await withSpinner(`Installing dependencies (${pm})`, async () => {
-        await run(pm, args, { cwd: targetDir });
+        await runQuiet(pm, args, { cwd: targetDir });
       });
     } catch (e) {
       err(`${pm} install failed (continuing):`, e.message);
@@ -737,9 +760,8 @@ async function ensureGitIdentity({ cwd }) {
   if (!name || !email) return false;
 
   try {
-    await run('git', ['config', 'user.name', name], { cwd });
-    await run('git', ['config', 'user.email', email], { cwd });
-    done('Configured local git identity');
+    await runQuiet('git', ['config', 'user.name', name], { cwd });
+    await runQuiet('git', ['config', 'user.email', email], { cwd });
     return true;
   } catch {
     return false;
@@ -821,8 +843,7 @@ async function installGlobalMCP() {
   if (process.env.CVA_SKIP_GLOBAL_MCP === '1') return;
   try {
     // Use npm explicitly for global install to match common tooling
-    await run('npm', ['i', '-g', '@archway/valet-mcp@latest', '--no-fund', '--no-audit']);
-    log('Installed @archway/valet-mcp globally');
+    await runQuiet('npm', ['i', '-g', '@archway/valet-mcp@latest', '--no-fund', '--no-audit']);
   } catch (e) {
     err('Global install of @archway/valet-mcp failed (continuing):', e.message);
     err('You can install it manually: npm i -g @archway/valet-mcp');
