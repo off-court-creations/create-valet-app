@@ -20,13 +20,19 @@ for (let i = 0; i < args.length; i++) {
 }
 
 const scenarios = [
-  { id: 'ts:default', template: 'ts', flags: [] },
-  { id: 'js:default', template: 'js', flags: [] },
-  { id: 'hybrid:default', template: 'hybrid', flags: [] },
-  { id: 'ts:no-router', template: 'ts', flags: ['--no-router'] },
-  { id: 'js:minimal', template: 'js', flags: ['--minimal'] },
-  { id: 'hybrid:no-zustand', template: 'hybrid', flags: ['--no-zustand'] },
-  { id: 'ts:alias-app', template: 'ts', flags: ['--path-alias', 'app'] },
+  // Baseline without MCP docs
+  { id: 'ts:default', template: 'ts', flags: [], mcp: false, checks: ['files:baseline'] },
+  { id: 'js:default', template: 'js', flags: [], mcp: false, checks: ['files:baseline'] },
+  { id: 'hybrid:default', template: 'hybrid', flags: [], mcp: false, checks: ['files:baseline'] },
+  // Feature toggles
+  { id: 'ts:no-router', template: 'ts', flags: ['--no-router'], mcp: false, checks: ['no-router'] },
+  { id: 'js:minimal', template: 'js', flags: ['--minimal'], mcp: false, checks: ['minimal'] },
+  { id: 'hybrid:no-zustand', template: 'hybrid', flags: ['--no-zustand'], mcp: false, checks: ['no-zustand'] },
+  { id: 'ts:alias-app', template: 'ts', flags: ['--path-alias', 'app'], mcp: false, checks: ['alias:app'] },
+  // MCP-on scenarios to validate AGENTS.md rendering
+  { id: 'ts:mcp-default', template: 'ts', flags: [], mcp: true, checks: ['agents:ts-default'] },
+  { id: 'js:mcp-default', template: 'js', flags: [], mcp: true, checks: ['agents:js-default'] },
+  { id: 'hybrid:mcp-custom', template: 'hybrid', flags: ['--no-router', '--no-zustand', '--minimal', '--path-alias', 'app'], mcp: true, checks: ['agents:hybrid-custom'] },
 ].filter((s) => (opts.only ? s.id === opts.only : true));
 
 function run(cmd, argv, cwd, env = {}) {
@@ -99,10 +105,17 @@ async function runScenario(baseDir, s) {
   const dir = path.join(baseDir, s.id.replace(/[:]/g, '-'));
   fs.mkdirSync(dir, { recursive: true });
   const appDir = path.join(dir, 'app');
-  const cliArgs = ['node', CLI, appDir, '--template', s.template, '--install', '--no-mcp', ...s.flags];
+  const cliArgs = ['node', CLI, appDir, '--template', s.template, '--install', s.mcp ? '--mcp' : '--no-mcp', ...s.flags];
   logLine(`[validate] ${s.id} -> generate`);
-  const gen = await run(cliArgs[0], cliArgs.slice(1), ROOT);
+  const gen = await run(cliArgs[0], cliArgs.slice(1), ROOT, s.mcp ? { CVA_SKIP_GLOBAL_MCP: '1' } : {});
   if (gen.code !== 0) return { id: s.id, ok: false, reason: 'generate', logs: gen.out + gen.err };
+
+  // Post-generate file/content checks
+  const checkRes = await postChecks(appDir, s);
+  if (!checkRes.ok) {
+    logLine(checkRes.log || '[validate] checks failed (no log)');
+    return { id: s.id, ok: false, reason: 'checks', logs: checkRes.log };
+  }
 
   logLine(`[validate] ${s.id} -> lint`);
   const lintRes = await lint(appDir);
@@ -138,6 +151,85 @@ async function runScenario(baseDir, s) {
   };
 }
 
+function readFileSafe(p) {
+  try { return fs.readFileSync(p, 'utf8'); } catch { return null; }
+}
+
+function exists(p) { try { return fs.existsSync(p); } catch { return false; } }
+
+async function postChecks(appDir, s) {
+  const msgs = [];
+  const fail = (m) => { msgs.push(`[check] ${m}`); };
+
+  // Baseline: when MCP is off, AGENTS.md should not exist
+  if (s.checks?.includes('files:baseline')) {
+    if (exists(path.join(appDir, 'AGENTS.md'))) fail('AGENTS.md should be absent when --no-mcp');
+  }
+
+  // No-router: package should not depend on react-router-dom and second page removed
+  if (s.checks?.includes('no-router')) {
+    const pkg = JSON.parse(readFileSafe(path.join(appDir, 'package.json')) || '{}');
+    if (pkg.dependencies && pkg.dependencies['react-router-dom']) fail('react-router-dom should be removed');
+    if (exists(path.join(appDir, 'src', 'pages', 'second'))) fail('second page directory should be removed');
+  }
+
+  // Minimal: second page removed
+  if (s.checks?.includes('minimal')) {
+    if (exists(path.join(appDir, 'src', 'pages', 'second'))) fail('second page directory should be removed in minimal');
+  }
+
+  // No-zustand: dependency and store directory removed
+  if (s.checks?.includes('no-zustand')) {
+    const pkg = JSON.parse(readFileSafe(path.join(appDir, 'package.json')) || '{}');
+    if (pkg.dependencies && pkg.dependencies['zustand']) fail('zustand should be removed');
+    if (exists(path.join(appDir, 'src', 'store'))) fail('src/store should be removed');
+  }
+
+  // Alias: verify vite config, tsconfig paths, and source import prefix swap
+  if (s.checks?.includes('alias:app')) {
+    const vite = readFileSafe(path.join(appDir, 'vite.config.ts')) || readFileSafe(path.join(appDir, 'vite.config.js')) || '';
+    if (!/['"]app['"]\s*:\s*path\.resolve/.test(vite)) fail('vite.config should map alias "app"');
+    const tsapp = readFileSafe(path.join(appDir, 'tsconfig.app.json')) || '';
+    if (!tsapp.includes('"app/*"')) {
+      const snippet = tsapp ? tsapp.substring(0, 140).replace(/\n/g, ' ') : '(missing)';
+      fail(`tsconfig.app.json should contain paths mapping for "app/*"; saw: ${snippet}`);
+    }
+    const appSrc = readFileSafe(path.join(appDir, 'src', 'App.tsx')) || '';
+    const mainSrc = readFileSafe(path.join(appDir, 'src', 'main.tsx')) || '';
+    if (!/app\//.test(appSrc + mainSrc)) fail('source files should import using app/ prefix');
+    // Ensure no bare '@/'
+    const hasAtSlash = /['"]@\//.test(appSrc + mainSrc);
+    if (hasAtSlash) fail('source should not contain "@/" after alias swap');
+  }
+
+  // AGENTS rendering checks
+  if (s.checks?.includes('agents:ts-default')) {
+    const md = readFileSafe(path.join(appDir, 'AGENTS.md')) || '';
+    if (!md) fail('AGENTS.md should exist when --mcp');
+    if (!/This is a TypeScript template\./.test(md)) fail('AGENTS.md should mention TypeScript template');
+    if (!/Typecheck:\s*`npm run -s typecheck:agent`/.test(md)) fail('AGENTS.md should include typecheck command');
+    if (!/Router:\s*enabled/.test(md)) fail('AGENTS.md Router feature should be enabled');
+    if (!/Zustand:\s*enabled/.test(md)) fail('AGENTS.md Zustand feature should be enabled');
+  }
+  if (s.checks?.includes('agents:js-default')) {
+    const md = readFileSafe(path.join(appDir, 'AGENTS.md')) || '';
+    if (!md) fail('AGENTS.md should exist when --mcp');
+    if (!/JavaScript-only template/.test(md)) fail('AGENTS.md should mention JavaScript-only template');
+    if (/Typecheck:\s*`npm run -s typecheck:agent`/.test(md)) fail('AGENTS.md should not include typecheck command for JS');
+    if (!/Typecheck:\s*n\/a for JS template\./.test(md)) fail('AGENTS.md should mark typecheck n/a for JS');
+  }
+  if (s.checks?.includes('agents:hybrid-custom')) {
+    const md = readFileSafe(path.join(appDir, 'AGENTS.md')) || '';
+    if (!/hybrid template/.test(md)) fail('AGENTS.md should mention hybrid template');
+    if (!/Router:\s*disabled/.test(md)) fail('AGENTS.md Router feature should be disabled');
+    if (!/Zustand:\s*disabled/.test(md)) fail('AGENTS.md Zustand feature should be disabled');
+    if (!/Minimal mode:\s*on/.test(md)) fail('AGENTS.md Minimal feature should be on');
+    if (!/Path alias token:\s*`app`/.test(md)) fail('AGENTS.md should reflect alias token app');
+  }
+
+  return { ok: msgs.length === 0, log: msgs.join('\n') };
+}
+
 (async function main() {
   const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cva-validate-'));
   logLine(`[validate] workspace: ${baseDir}`);
@@ -156,4 +248,3 @@ async function runScenario(baseDir, s) {
   logLine(`[validate] summary: ${results.map((r) => `${r.id}:${r.ok ? 'ok' : 'fail'}`).join(' ')}`);
   process.exit(allOk ? 0 : 1);
 })();
-

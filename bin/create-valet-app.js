@@ -9,6 +9,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
+import readline from 'node:readline';
 
 const require = createRequire(import.meta.url);
 const __filename = fileURLToPath(import.meta.url);
@@ -30,7 +31,7 @@ function err(...args) { console.error('[cva]', ...args); }
 function usage() {
   console.log(`\n@archway/create-valet-app v${PKG.version || 'dev'}\n\n` +
 `Usage:\n  npx @archway/create-valet-app <dir> [options]\n  npm create @archway/valet-app <dir> [options]\n\n` +
-`Options:\n  --template ts|js|hybrid   Choose template (default: ts)\n  --install                 Run package install step\n  --pm npm|pnpm|yarn|bun    Choose package manager (default: auto-detect/npm)\n  --git                     Initialize git repo\n  --mcp                     Include AGENTS.md with valet MCP guidance (default)\n  --no-mcp                  Skip AGENTS.md\n  --router | --no-router    Include React Router (default: --router)\n  --zustand | --no-zustand  Include Zustand store (default: --zustand)\n  --minimal                 Minimal files (single page; trims extras)\n  --path-alias <token>      Import alias token for src (default: @)\n  -h, --help                Show help\n`);
+`Options:\n  --template ts|js|hybrid   Choose template (default: ts)\n  --no-install             Skip dependency install (default runs install)\n  --pm npm|pnpm|yarn|bun    Choose package manager (default: auto-detect/npm)\n  --git                     Initialize git repo\n  --mcp                     Enable valet MCP guidance (default; attempts global @archway/valet-mcp install; offers to update ~/.codex/config.toml)\n  --no-mcp                  Disable MCP guidance (skips AGENTS.md and global install)\n  --router | --no-router    Include React Router (default: --router)\n  --zustand | --no-zustand  Include Zustand store (default: --zustand)\n  --minimal                 Minimal files (single page; trims extras)\n  --path-alias <token>      Import alias token for src (default: @)\n  -h, --help                Show help\n`);
 }
 
 function parseArgs(argv) {
@@ -38,7 +39,7 @@ function parseArgs(argv) {
   const out = {
     dir: undefined,
     template: 'ts',
-    install: false,
+    install: true,
     pm: undefined,
     git: false,
     mcp: true,
@@ -54,6 +55,7 @@ function parseArgs(argv) {
     if (!out.dir && !a.startsWith('-')) { out.dir = a; continue; }
     if (a === '--template') { out.template = args[++i]; continue; }
     if (a === '--install') { out.install = true; continue; }
+    if (a === '--no-install') { out.install = false; continue; }
     if (a === '--pm') { out.pm = args[++i]; continue; }
     if (a === '--git') { out.git = true; continue; }
     if (a === '--mcp') { out.mcp = true; continue; }
@@ -143,10 +145,21 @@ async function main() {
   // Apply feature toggles (router/zustand/minimal/path alias)
   await applyFeatureToggles({ targetDir, template: opts.template, router: opts.router, zustand: opts.zustand, minimal: opts.minimal, pathAlias: opts.pathAlias });
 
-  // Conditionally remove AGENTS.md
-  if (!opts.mcp) {
-    const agentsPath = path.join(targetDir, 'AGENTS.md');
-    if (fs.existsSync(agentsPath)) fs.rmSync(agentsPath);
+  // Generate AGENTS.md from single source template unless --no-mcp
+  await generateAgentsDoc({
+    targetDir,
+    include: opts.mcp,
+    template: opts.template,
+    router: opts.router,
+    zustand: opts.zustand,
+    minimal: opts.minimal,
+    pathAlias: opts.pathAlias,
+  });
+
+  // If MCP is enabled, attempt to install the valet MCP server globally
+  if (opts.mcp) {
+    await installGlobalMCP();
+    await ensureMCPConfig();
   }
 
   // Git init (optional)
@@ -521,4 +534,129 @@ function safePkgMutate(pkgPath, mutator) {
   if (!pkg) return;
   const next = mutator(pkg) || pkg;
   writeJSON(pkgPath, next);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Render single-source AGENTS.md tailored to template and flags
+async function generateAgentsDoc({ targetDir, include, template, router, zustand, minimal, pathAlias }) {
+  const outPath = path.join(targetDir, 'AGENTS.md');
+  if (!include) {
+    if (fs.existsSync(outPath)) fs.rmSync(outPath);
+    return;
+  }
+  const basePath = path.join(__dirname, '..', 'templates', 'AGENTS.base.md');
+  let base = '';
+  try {
+    base = fs.readFileSync(basePath, 'utf8');
+  } catch {
+    // If missing, skip gracefully
+    return;
+  }
+
+  const isJS = template === 'js';
+  const isTS = template === 'ts';
+  const isHybrid = template === 'hybrid';
+
+  const LANG_NOTE = isJS
+    ? 'This is a JavaScript-only template; there is no typecheck step.'
+    : isTS
+      ? 'This is a TypeScript template.'
+      : 'This is a hybrid template: TypeScript by default, JavaScript files allowed.';
+
+  const AGENT_COMMANDS = [
+    '- Lint: `npm run -s lint:agent`',
+    '- Fix lint: `npm run -s lint:fix:agent`',
+    !isJS ? '- Typecheck: `npm run -s typecheck:agent`' : null,
+    '- Format check: `npm run -s format:agent`',
+    '- Format write: `npm run -s format:fix:agent`',
+    '- Build: `npm run -s build:agent`',
+  ].filter(Boolean).join('\n');
+
+  const FEATURES_LIST = [
+    `- Router: ${router ? 'enabled' : 'disabled'}`,
+    `- Zustand: ${zustand ? 'enabled' : 'disabled'}`,
+    `- Minimal mode: ${minimal ? 'on' : 'off'}`,
+    `- Path alias token: \`${pathAlias || '@'}\` (import from \`${pathAlias || '@'}/...\`)`,
+  ].join('\n');
+
+  const DOD_LIST = [
+    !isJS ? '- TypeScript typechecks clean.' : '- Typecheck: n/a for JS template.',
+    '- Build succeeds.',
+    '- Lint/format clean or auto-fixed.',
+  ].join('\n');
+
+  const rendered = base
+    .replace('{{LANG_NOTE}}', LANG_NOTE)
+    .replace('{{AGENT_COMMANDS}}', AGENT_COMMANDS)
+    .replace('{{FEATURES_LIST}}', FEATURES_LIST)
+    .replace('{{DOD_LIST}}', DOD_LIST);
+
+  fs.writeFileSync(outPath, rendered);
+}
+
+// Attempt to install @archway/valet-mcp globally when MCP is enabled.
+// Skips install if CVA_SKIP_GLOBAL_MCP=1 is set, or if install fails (non-fatal).
+async function installGlobalMCP() {
+  if (process.env.CVA_SKIP_GLOBAL_MCP === '1') return;
+  try {
+    // Use npm explicitly for global install to match common tooling
+    await run('npm', ['i', '-g', '@archway/valet-mcp@latest', '--no-fund', '--no-audit']);
+    log('Installed @archway/valet-mcp globally');
+  } catch (e) {
+    err('Global install of @archway/valet-mcp failed (continuing):', e.message);
+    err('You can install it manually: npm i -g @archway/valet-mcp');
+  }
+}
+
+// Ensure Codex CLI knows about the valet MCP server by checking ~/.codex/config.toml.
+// If the file is missing the valet entry, prompt the user to add it.
+async function ensureMCPConfig() {
+  const nonInteractive = process.env.CVA_NONINTERACTIVE === '1' || !process.stdin.isTTY || !process.stdout.isTTY;
+  const configDir = path.join(os.homedir(), '.codex');
+  const configPath = path.join(configDir, 'config.toml');
+  let content = '';
+  let exists = false;
+  try {
+    content = fs.readFileSync(configPath, 'utf8');
+    exists = true;
+  } catch {}
+  const hasValet = /\[mcp_servers\.valet\]/m.test(content);
+  if (hasValet) return; // already configured
+
+  const block = `\n[mcp_servers.valet]\ncommand = "valet-mcp"\nargs = []\n`;
+
+  if (nonInteractive) {
+    log('MCP is enabled. Tip: add valet server to ~/.codex/config.toml:');
+    console.log(block.trim());
+    return;
+  }
+
+  const question = exists
+    ? 'MCP is enabled, but ~/.codex/config.toml lacks a valet entry. Add it now? (Y/n) '
+    : 'MCP is enabled. Create ~/.codex/config.toml with a valet entry? (Y/n) ';
+
+  const answer = await promptYesNo(question, true);
+  if (!answer) return;
+
+  try {
+    if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+    const prefix = exists && content.trim().length ? (content.endsWith('\n') ? '' : '\n') + '\n' : '';
+    const next = (content || '') + prefix + block;
+    fs.writeFileSync(configPath, next);
+    log('Updated', configPath, 'with valet MCP server.');
+  } catch (e) {
+    err('Failed to update', configPath, '(continuing):', e.message);
+  }
+}
+
+function promptYesNo(q, defYes = true) {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(q, (ans) => {
+      rl.close();
+      const a = String(ans || '').trim().toLowerCase();
+      if (!a) return resolve(defYes);
+      resolve(a === 'y' || a === 'yes');
+    });
+  });
 }
