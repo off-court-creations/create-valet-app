@@ -98,7 +98,7 @@ function usage() {
   console.log('  ', chalk.green('--template'), chalk.gray('ts|js|hybrid   Choose template (default: ts)'));
   console.log('  ', chalk.green('--no-install'), chalk.gray('Skip dependency install (default runs install)'));
   console.log('  ', chalk.green('--pm'), chalk.gray('npm|pnpm|yarn|bun    Package manager (default: auto)'));
-  console.log('  ', chalk.green('--git'), chalk.gray('Initialize git repo'));
+  console.log('  ', chalk.green('--git|--no-git'), chalk.gray('Initialize git repo (default: --git)'));
   console.log('  ', chalk.green('--mcp'), chalk.gray('Enable valet MCP guidance (default)'));
   console.log('  ', chalk.green('--no-mcp'), chalk.gray('Disable MCP guidance'));
   console.log('  ', chalk.green('--router|--no-router'), chalk.gray('Include React Router (default: --router)'));
@@ -116,7 +116,7 @@ function parseArgs(argv) {
     template: 'ts',
     install: true,
     pm: undefined,
-    git: false,
+    git: true,
     mcp: true,
     router: true,
     zustand: true,
@@ -133,6 +133,7 @@ function parseArgs(argv) {
     if (a === '--no-install') { out.install = false; continue; }
     if (a === '--pm') { out.pm = args[++i]; continue; }
     if (a === '--git') { out.git = true; continue; }
+    if (a === '--no-git') { out.git = false; continue; }
     if (a === '--mcp') { out.mcp = true; continue; }
     if (a === '--no-mcp') { out.mcp = false; continue; }
     if (a === '--router') { out.router = true; continue; }
@@ -233,6 +234,9 @@ async function main() {
     }
     appPkg.name = normalizePkgName(opts.dir);
     writeJSON(appPkgPath, appPkg);
+
+    // Ensure a useful .gitignore exists in the project
+    ensureGitignore(targetDir);
   });
 
   // Apply feature toggles (router/zustand/minimal/path alias)
@@ -262,13 +266,31 @@ async function main() {
     await ensureMCPConfig();
   }
 
-  // Git init (optional)
+  // Git init (default; opt-out with --no-git)
   if (opts.git) {
     try {
       await withSpinner('Initializing git', async () => {
+        // verify git is available
+        try { await run('git', ['--version']); } catch {
+          throw new Error('git is not installed or not in PATH');
+        }
+
+        // init repository
         await run('git', ['init'], { cwd: targetDir });
+
+        // ensure identity, prompting locally if missing
+        const identityReady = await ensureGitIdentity({ cwd: targetDir });
+
+        // stage and (optionally) commit
         await run('git', ['add', '.'], { cwd: targetDir });
-        await run('git', ['commit', '-m', 'init(create-valet-app): scaffold template'], { cwd: targetDir });
+        if (identityReady) {
+          await run('git', ['commit', '-m', 'init(create-valet-app): scaffold template'], { cwd: targetDir });
+        } else {
+          log('Skipping initial commit. Tip: configure git identity then run:');
+          console.log('   ', chalk.gray('git'), 'config user.name', chalk.cyan('"Your Name"'));
+          console.log('   ', chalk.gray('git'), 'config user.email', chalk.cyan('"you@example.com"'));
+          console.log('   ', chalk.gray('git'), 'commit -m', chalk.cyan('"init(create-valet-app): scaffold template"'));
+        }
       });
     } catch (e) {
       err('git init failed (continuing):', e.message);
@@ -638,6 +660,101 @@ function safePkgMutate(pkgPath, mutator) {
   if (!pkg) return;
   const next = mutator(pkg) || pkg;
   writeJSON(pkgPath, next);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Git helpers
+function ensureGitignore(targetDir) {
+  const p = path.join(targetDir, '.gitignore');
+  if (fs.existsSync(p)) return;
+  const contents = `# Logs
+logs
+*.log
+npm-debug.log*
+
+
+build/Release
+
+node_modules/
+
+*.tsbuildinfo
+
+.npm
+
+.eslintcache
+
+.stylelintcache
+
+*.tgz
+
+.env
+.env.*
+!.env.example
+
+dist
+
+.temp
+.cache
+
+**/.vitepress/dist
+**/.vitepress/cache
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Stores VSCode versions used for testing VSCode extensions
+.vscode-test
+`;
+  try { fs.writeFileSync(p, contents); } catch {}
+}
+
+async function ensureGitIdentity({ cwd }) {
+  // Returns true if identity is configured (locally or globally). If missing
+  // and interactive, prompts and sets local config for this repo.
+  const nonInteractive = process.env.CVA_NONINTERACTIVE === '1' || !process.stdin.isTTY || !process.stdout.isTTY;
+
+  async function get(key) {
+    try {
+      const out = await execCapture('git', ['config', '--get', key], { cwd });
+      return out.trim();
+    } catch {
+      return '';
+    }
+  }
+
+  let name = await get('user.name');
+  let email = await get('user.email');
+  if (name && email) return true;
+
+  if (nonInteractive) return false;
+
+  const { Input } = enquirer;
+  if (!name) {
+    name = await new Input({ name: 'gitName', message: 'Git user.name', initial: os.userInfo().username || '' }).run();
+  }
+  if (!email) {
+    email = await new Input({ name: 'gitEmail', message: 'Git user.email', initial: '' }).run();
+  }
+  if (!name || !email) return false;
+
+  try {
+    await run('git', ['config', 'user.name', name], { cwd });
+    await run('git', ['config', 'user.email', email], { cwd });
+    done('Configured local git identity');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function execCapture(cmd, args, opts = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], ...opts });
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (d) => (out += d.toString()));
+    child.stderr.on('data', (d) => (err += d.toString()));
+    child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(err || `${cmd} exited ${code}`))));
+  });
 }
 
 // ─────────────────────────────────────────────────────────────

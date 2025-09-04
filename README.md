@@ -46,7 +46,7 @@ Choose with `--template ts|js|hybrid`.
 - `--template ts|js|hybrid` set the template (default `ts`).
 - `--install` run dependency installation automatically.
 - `--pm npm|pnpm|yarn|bun` choose the package manager (default: auto/npm).
-- `--git` initialize a git repo and make an initial commit.
+- `--git` / `--no-git` initialize a git repo (default: `--git`). The CLI writes a sensible `.gitignore`, checks for your git identity (`user.name`/`user.email`) and, if missing, prompts to set it locally for the new repo (non‑interactive runs will skip the initial commit if identity is missing).
 - `--mcp` / `--no-mcp` include or skip AGENTS.md (Valet MCP guidance). Default: include.
 - `--router` / `--no-router` include or remove React Router (default: include).
 - `--zustand` / `--no-zustand` include or remove Zustand sample store (default: include).
