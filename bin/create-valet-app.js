@@ -22,6 +22,28 @@ const __dirname = path.dirname(__filename);
 
 const PKG = readJSONSafe(path.join(__dirname, '..', 'package.json')) || {};
 
+// Determine the target Valet minor line to use for generated apps and MCP.
+// Default behavior: tie to this CLI's own minor (x.MINOR.x), e.g. 0.30.x.
+// Overrides: env CVA_VALET_MINOR (e.g. "0.31"), or package.json { cva: { valetMinor } }.
+function resolveValetMinor() {
+  // Explicit env override wins
+  if (process.env.CVA_VALET_MINOR) return String(process.env.CVA_VALET_MINOR);
+  // Config override in package.json
+  if (PKG && PKG.cva && PKG.cva.valetMinor) return String(PKG.cva.valetMinor);
+  // Derive from this package version (use MAJOR.MINOR)
+  const ver = String(PKG.version || '0.30.0');
+  const parts = ver.split('.');
+  const major = parts[0] || '0';
+  const minor = parts[1] || '30';
+  return `${major}.${minor}`;
+}
+
+// Produce a semver range that tracks the highest PATCH within the chosen MINOR.
+// For example, minor "0.30" -> "^0.30.0" (for 0.x, caret behaves like patch range within the same minor).
+function valetMinorRange(minor) {
+  return `^${minor}.0`;
+}
+
 // ─────────────────────────────────────────────────────────────
 // Styling helpers
 const COLORS = {
@@ -251,6 +273,15 @@ async function main() {
       process.exit(1);
     }
     appPkg.name = normalizePkgName(opts.dir);
+    // Ensure @archway/valet dependency is aligned to our target minor
+    try {
+      const minor = resolveValetMinor();
+      const range = valetMinorRange(minor);
+      appPkg.dependencies = appPkg.dependencies || {};
+      if (appPkg.dependencies['@archway/valet'] !== range) {
+        appPkg.dependencies['@archway/valet'] = range;
+      }
+    } catch {}
     writeJSON(appPkgPath, appPkg);
 
     // Ensure a useful .gitignore exists in the project
@@ -838,15 +869,20 @@ async function generateAgentsDoc({ targetDir, include, template, router, zustand
 }
 
 // Attempt to install @archway/valet-mcp globally when MCP is enabled.
+// Uses the same minor line as the Valet dependency in templates.
 // Skips install if CVA_SKIP_GLOBAL_MCP=1 is set, or if install fails (non-fatal).
 async function installGlobalMCP() {
   if (process.env.CVA_SKIP_GLOBAL_MCP === '1') return;
   try {
     // Use npm explicitly for global install to match common tooling
-    await runQuiet('npm', ['i', '-g', '@archway/valet-mcp@latest', '--no-fund', '--no-audit']);
+    const minor = resolveValetMinor();
+    const range = valetMinorRange(minor); // e.g., ^0.30.0
+    await runQuiet('npm', ['i', '-g', `@archway/valet-mcp@${range}`, '--no-fund', '--no-audit']);
   } catch (e) {
     err('Global install of @archway/valet-mcp failed (continuing):', e.message);
-    err('You can install it manually: npm i -g @archway/valet-mcp');
+    const minor = resolveValetMinor();
+    const range = valetMinorRange(minor);
+    err(`You can install it manually: npm i -g @archway/valet-mcp@${range}`);
   }
 }
 
