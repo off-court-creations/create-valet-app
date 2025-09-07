@@ -15,6 +15,7 @@ import enquirer from 'enquirer';
 import ora from 'ora';
 import gradient from 'gradient-string';
 import figlet from 'figlet';
+import boxen from 'boxen';
 
 const require = createRequire(import.meta.url);
 const __filename = fileURLToPath(import.meta.url);
@@ -238,7 +239,11 @@ async function main() {
   if (opts.help) { usage(); process.exit(0); }
 
   // Friendly banner for interactive sessions
-  if (interactive) banner();
+  if (interactive) {
+    // Clear the screen for a clean, modern feel
+    try { console.clear(); } catch {}
+    banner();
+  }
 
   // Interactive prompt when no directory provided
   if (!opts.dir && interactive) {
@@ -365,14 +370,43 @@ async function main() {
   }
 
   // Final handoff
-  console.log();
-  log(chalk.bold.green('Success!'), 'Created a Valet app at', chalk.cyan(targetDir));
-  console.log();
-  console.log(chalk.bold('Next steps:'));
-  console.log('  ', chalk.gray('cd'), chalk.cyan(path.relative(process.cwd(), targetDir) || '.'));
-  if (!opts.install) console.log('  ', chalk.gray('npm install'));
-  console.log('  ', chalk.gray('npm run dev'));
-  console.log();
+  showSuccessSummary({ targetDir, installed: opts.install });
+
+  // Optional niceties in interactive terminals
+  if (interactive) {
+    // Ask both questions first, then act.
+    let openInCode = false;
+    let startNow = false;
+
+    const canCode = await hasBinary('code', ['-v']);
+    if (canCode) {
+      openInCode = await promptConfirm('Open project in VS Code?', true);
+    }
+    startNow = await promptConfirm('Start the dev server now?', true);
+
+    // Act after both answers are known
+    if (openInCode) {
+      try {
+        const readme = path.join(targetDir, 'README.md');
+        const args = fs.existsSync(readme)
+          ? ['-n', targetDir, readme]
+          : ['-n', targetDir];
+        await run('code', args);
+      } catch {}
+    }
+    if (startNow) {
+      const pmNow = resolvePM(opts.pm);
+      const args = pmNow === 'npm' ? ['run', 'dev', '--', '--open'] : ['run', 'dev', '--', '--open'];
+      try {
+        await run(pmNow, args, { cwd: targetDir });
+      } catch (e) {
+        err('Failed to start dev server (continuing):', e.message);
+      }
+    }
+
+    // Finally, switch the user into a shell whose cwd is the project directory.
+    await openShellInProject(targetDir);
+  }
 }
 
 function normalizePkgName(input) {
@@ -804,10 +838,45 @@ function execCapture(cmd, args, opts = {}) {
     const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], ...opts });
     let out = '';
     let err = '';
-    child.stdout.on('data', (d) => (out += d.toString()));
-    child.stderr.on('data', (d) => (err += d.toString()));
-    child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(err || `${cmd} exited ${code}`))));
+  child.stdout.on('data', (d) => (out += d.toString()));
+  child.stderr.on('data', (d) => (err += d.toString()));
+  child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(err || `${cmd} exited ${code}`))));
   });
+}
+
+function showSuccessSummary({ targetDir, installed }) {
+  const rel = path.relative(process.cwd(), targetDir) || '.';
+  const title = chalk.bold.green('Success! ') + chalk.reset('Your Valet app is ready');
+  const steps = [
+    chalk.cyan(`cd ${rel}`),
+    !installed ? chalk.gray('npm install') : null,
+    chalk.cyan('npm run dev'),
+  ].filter(Boolean).map((l) => `• ${l}`).join('\n');
+
+  const body = `${title}\n\n${steps}`;
+  const box = boxen(body, {
+    padding: 1,
+    margin: 1,
+    borderStyle: 'round',
+    borderColor: 'green',
+  });
+  console.log(box);
+}
+
+async function hasBinary(cmd, testArgs = ['--version']) {
+  try { await execCapture(cmd, testArgs); return true; } catch { return false; }
+}
+
+async function openShellInProject(dir) {
+  const isWin = process.platform === 'win32';
+  const shell = isWin ? (process.env.COMSPEC || process.env.ComSpec || 'cmd.exe') : (process.env.SHELL || 'bash');
+  const args = [];
+  try {
+    done(`Opening shell in ${chalk.cyan(dir)} (type 'exit' to return)`);
+    await run(shell, args, { cwd: dir });
+  } catch (e) {
+    err('Failed to open an interactive shell:', e.message);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
