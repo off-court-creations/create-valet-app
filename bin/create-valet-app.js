@@ -45,6 +45,21 @@ function valetMinorRange(minor) {
   return `^${minor}.0`;
 }
 
+// Parse a semver string into { major, minor, patch } numbers. Returns null on failure.
+function parseSemver(v) {
+  if (!v || typeof v !== 'string') return null;
+  const m = v.trim().match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!m) return null;
+  return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]) };
+}
+
+// Produce a range that locks within the same MINOR and upgrades to latest PATCH.
+// - For 0.x: caret (e.g., ^0.30.0) already locks to same minor.
+// - For 1.x+: use tilde (e.g., ~1.2.0) to keep minor locked.
+function minorLockedRange(major, minor) {
+  return Number(major) === 0 ? `^0.${minor}.0` : `~${major}.${minor}.0`;
+}
+
 // ─────────────────────────────────────────────────────────────
 // Styling helpers
 const COLORS = {
@@ -943,9 +958,34 @@ async function generateAgentsDoc({ targetDir, include, template, router, zustand
 async function installGlobalMCP() {
   if (process.env.CVA_SKIP_GLOBAL_MCP === '1') return;
   try {
+    // Prefer upgrading within the currently installed MINOR if valet-mcp is present.
+    // Otherwise, install aligned to this CLI's target minor.
+    let range;
+
+    // Try to detect installed global version from the binary first
+    let installedVersion = '';
+    try {
+      const out = await execCapture('valet-mcp', ['--version']);
+      installedVersion = (out || '').trim();
+    } catch {
+      // Fallback to npm ls -g (best-effort)
+      try {
+        const json = await execCapture('npm', ['ls', '-g', '@archway/valet-mcp', '--json', '--long']);
+        const info = JSON.parse(json);
+        const dep = (info && (info.dependencies && info.dependencies['@archway/valet-mcp'])) || info;
+        if (dep && dep.version) installedVersion = String(dep.version);
+      } catch {}
+    }
+
+    const parsed = parseSemver(installedVersion);
+    if (parsed) {
+      range = minorLockedRange(parsed.major, parsed.minor);
+    } else {
+      const minor = resolveValetMinor();
+      range = valetMinorRange(minor); // e.g., ^0.30.0
+    }
+
     // Use npm explicitly for global install to match common tooling
-    const minor = resolveValetMinor();
-    const range = valetMinorRange(minor); // e.g., ^0.30.0
     await runQuiet('npm', ['i', '-g', `@archway/valet-mcp@${range}`, '--no-fund', '--no-audit']);
   } catch (e) {
     err('Global install of @archway/valet-mcp failed (continuing):', e.message);

@@ -7,7 +7,8 @@ All notable changes to this project are documented here.
 - Changed: Cleaner output — suppresses git and package manager noise so steps show as concise checklists.
 - Changed: Global MCP install runs quietly; keeps scaffold output tidy.
 - Changed: Banner renders as three lines with gradient:
-  create → valet → app.
+ create → valet → app.
+- Changed: Global MCP installer upgrades existing `@archway/valet-mcp` to latest patch within the same minor (x.Y.z → latest z).
 
 0.30.3 — 2025-09-04
 - Added: Git initialization enabled by default with `--no-git` opt-out.
