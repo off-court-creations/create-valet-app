@@ -22,6 +22,7 @@ All notable changes to this project are documented here.
 
 0.30.1 — 2025-09-03
 - Added: Valet MCP guidance generation (`AGENTS.md`), with interactive config helper.
+ - Added: Generate `CLAUDE.md` alongside `AGENTS.md` with identical guidance.
 - Changed: Adjusted install process to include optional MCP pieces.
 - Internal: Packaging and version bump.
 

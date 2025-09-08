@@ -951,11 +951,13 @@ async function openShellInProject(dir) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Render single-source AGENTS.md tailored to template and flags
+// Render single-source AGENTS.md (and CLAUDE.md) tailored to template and flags
 async function generateAgentsDoc({ targetDir, include, template, router, zustand, minimal, pathAlias }) {
-  const outPath = path.join(targetDir, 'AGENTS.md');
+  const agentsPath = path.join(targetDir, 'AGENTS.md');
+  const claudePath = path.join(targetDir, 'CLAUDE.md');
   if (!include) {
-    if (fs.existsSync(outPath)) fs.rmSync(outPath);
+    if (fs.existsSync(agentsPath)) fs.rmSync(agentsPath);
+    if (fs.existsSync(claudePath)) fs.rmSync(claudePath);
     return;
   }
   const basePath = path.join(__dirname, '..', 'templates', 'AGENTS.base.md');
@@ -1005,7 +1007,12 @@ async function generateAgentsDoc({ targetDir, include, template, router, zustand
     .replace('{{FEATURES_LIST}}', FEATURES_LIST)
     .replace('{{DOD_LIST}}', DOD_LIST);
 
-  fs.writeFileSync(outPath, rendered);
+  // Write AGENTS.md as-is
+  fs.writeFileSync(agentsPath, rendered);
+
+  // Write CLAUDE.md with the same content but a CLAUDE.md heading
+  const renderedClaude = rendered.replace('# AGENTS.md', '# CLAUDE.md');
+  fs.writeFileSync(claudePath, renderedClaude);
 }
 
 // Attempt to install @archway/valet-mcp globally when MCP is enabled.

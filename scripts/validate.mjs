@@ -164,6 +164,7 @@ async function postChecks(appDir, s) {
   // Baseline: when MCP is off, AGENTS.md should not exist
   if (s.checks?.includes('files:baseline')) {
     if (exists(path.join(appDir, 'AGENTS.md'))) fail('AGENTS.md should be absent when --no-mcp');
+    if (exists(path.join(appDir, 'CLAUDE.md'))) fail('CLAUDE.md should be absent when --no-mcp');
   }
 
   // No-router: package should not depend on react-router-dom and second page removed
@@ -210,6 +211,13 @@ async function postChecks(appDir, s) {
     if (!/Typecheck:\s*`npm run -s typecheck:agent`/.test(md)) fail('AGENTS.md should include typecheck command');
     if (!/Router:\s*enabled/.test(md)) fail('AGENTS.md Router feature should be enabled');
     if (!/Zustand:\s*enabled/.test(md)) fail('AGENTS.md Zustand feature should be enabled');
+
+    const cd = readFileSafe(path.join(appDir, 'CLAUDE.md')) || '';
+    if (!cd) fail('CLAUDE.md should exist when --mcp');
+    if (!/This is a TypeScript template\./.test(cd)) fail('CLAUDE.md should mention TypeScript template');
+    if (!/Typecheck:\s*`npm run -s typecheck:agent`/.test(cd)) fail('CLAUDE.md should include typecheck command');
+    if (!/Router:\s*enabled/.test(cd)) fail('CLAUDE.md Router feature should be enabled');
+    if (!/Zustand:\s*enabled/.test(cd)) fail('CLAUDE.md Zustand feature should be enabled');
   }
   if (s.checks?.includes('agents:js-default')) {
     const md = readFileSafe(path.join(appDir, 'AGENTS.md')) || '';
@@ -217,6 +225,12 @@ async function postChecks(appDir, s) {
     if (!/JavaScript-only template/.test(md)) fail('AGENTS.md should mention JavaScript-only template');
     if (/Typecheck:\s*`npm run -s typecheck:agent`/.test(md)) fail('AGENTS.md should not include typecheck command for JS');
     if (!/Typecheck:\s*n\/a for JS template\./.test(md)) fail('AGENTS.md should mark typecheck n/a for JS');
+
+    const cd = readFileSafe(path.join(appDir, 'CLAUDE.md')) || '';
+    if (!cd) fail('CLAUDE.md should exist when --mcp');
+    if (!/JavaScript-only template/.test(cd)) fail('CLAUDE.md should mention JavaScript-only template');
+    if (/Typecheck:\s*`npm run -s typecheck:agent`/.test(cd)) fail('CLAUDE.md should not include typecheck command for JS');
+    if (!/Typecheck:\s*n\/a for JS template\./.test(cd)) fail('CLAUDE.md should mark typecheck n/a for JS');
   }
   if (s.checks?.includes('agents:hybrid-custom')) {
     const md = readFileSafe(path.join(appDir, 'AGENTS.md')) || '';
@@ -225,6 +239,13 @@ async function postChecks(appDir, s) {
     if (!/Zustand:\s*disabled/.test(md)) fail('AGENTS.md Zustand feature should be disabled');
     if (!/Minimal mode:\s*on/.test(md)) fail('AGENTS.md Minimal feature should be on');
     if (!/Path alias token:\s*`app`/.test(md)) fail('AGENTS.md should reflect alias token app');
+
+    const cd = readFileSafe(path.join(appDir, 'CLAUDE.md')) || '';
+    if (!/hybrid template/.test(cd)) fail('CLAUDE.md should mention hybrid template');
+    if (!/Router:\s*disabled/.test(cd)) fail('CLAUDE.md Router feature should be disabled');
+    if (!/Zustand:\s*disabled/.test(cd)) fail('CLAUDE.md Zustand feature should be disabled');
+    if (!/Minimal mode:\s*on/.test(cd)) fail('CLAUDE.md Minimal feature should be on');
+    if (!/Path alias token:\s*`app`/.test(cd)) fail('CLAUDE.md should reflect alias token app');
   }
 
   return { ok: msgs.length === 0, log: msgs.join('\n') };
