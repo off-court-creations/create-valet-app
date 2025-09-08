@@ -343,6 +343,12 @@ async function main() {
 
     // Ensure a useful .gitignore exists in the project
     ensureGitignore(targetDir);
+
+    // Ensure an empty .valet-mcp directory exists at project root
+    try {
+      const mcpDir = path.join(targetDir, '.valet-mcp');
+      if (!fs.existsSync(mcpDir)) fs.mkdirSync(mcpDir, { recursive: true });
+    } catch {}
   });
 
   // Apply feature toggles (router/zustand/minimal/path alias)
@@ -835,6 +841,9 @@ dist
 
 .temp
 .cache
+
+# Valet MCP working directory
+.valet-mcp/
 
 **/.vitepress/dist
 **/.vitepress/cache
