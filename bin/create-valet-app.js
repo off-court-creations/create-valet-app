@@ -1183,60 +1183,18 @@ async function promptForOptions(defaults) {
   return { dir, template, router, zustand, minimal, pathAlias, git, mcp, install, pm };
 }
 
-// Guided presets + refinement wizard to help pick a set of flags.
+// Guided refinement wizard to tweak all flags.
 async function promptForFlagsExperience(defaults) {
-  const { Select } = enquirer;
+  // No preset selection; jump straight to full-options refinement seeded with current defaults
 
   // Intro text
-  console.log(boxen(chalk.bold('Customize your Valet app') + '\n' + chalk.dim('Pick a starting preset, then tweak details'), {
+  console.log(boxen(chalk.bold('Customize your Valet app') + '\n' + chalk.dim('Review and tweak any setting'), {
     padding: 1,
     margin: 0,
     borderColor: 'cyan',
     borderStyle: 'round',
   }));
   console.log();
-
-  const presets = [
-    {
-      name: 'recommended',
-      message: 'Recommended — TS, Router, Zustand, MCP, Git, Install',
-      values: { template: 'ts', router: true, zustand: true, minimal: false, mcp: true, git: true, install: true },
-    },
-    {
-      name: 'minimal',
-      message: 'Minimal — TS, no Router, no Zustand, Minimal mode',
-      values: { template: 'ts', router: false, zustand: false, minimal: true, mcp: false, git: true, install: false },
-    },
-    {
-      name: 'basic',
-      message: 'Basic — TS, Router, no Zustand',
-      values: { template: 'ts', router: true, zustand: false, minimal: false, mcp: true, git: true, install: true },
-    },
-    {
-      name: 'js-quick',
-      message: 'JS Quick — JS, no Router, no Zustand, Minimal',
-      values: { template: 'js', router: false, zustand: false, minimal: true, mcp: false, git: true, install: false },
-    },
-    {
-      name: 'hybrid-explorer',
-      message: 'Hybrid Explorer — Hybrid TS+JS, Router, Zustand',
-      values: { template: 'hybrid', router: true, zustand: true, minimal: false, mcp: true, git: true, install: true },
-    },
-    {
-      name: 'custom',
-      message: 'Custom — Start from current defaults',
-      values: {},
-    },
-  ];
-
-  const presetName = await new Select({
-    name: 'preset',
-    message: 'Choose a preset',
-    choices: presets.map((p) => ({ name: p.name, message: p.message })),
-    initial: 0,
-  }).run();
-
-  const chosen = presets.find((p) => p.name === presetName) || presets[0];
   const base = {
     dir: defaults.dir || 'valet-app',
     template: defaults.template,
@@ -1249,7 +1207,6 @@ async function promptForFlagsExperience(defaults) {
     minimal: defaults.minimal,
     pathAlias: defaults.pathAlias,
   };
-  Object.assign(base, chosen.values);
 
   // Now let the user review and refine all options
   return await promptForOptions(base);

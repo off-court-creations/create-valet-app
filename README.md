@@ -37,7 +37,7 @@ npm run dev
 
 - Running without any `--flags` in an interactive terminal prompts: “Would you like to change any of the default settings?” (defaults to No).
 - Choose No to proceed with the defaults (you’ll only be asked for a directory if missing).
-- Choose Yes to open a guided wizard with presets (Recommended, Minimal, Basic, JS Quick, Hybrid Explorer), then refine all options (template, router, zustand, minimal mode, path alias, MCP, git, install, package manager).
+- Choose Yes to open a guided wizard to review and tweak all options (template, router, zustand, minimal mode, path alias, MCP, git, install, package manager).
 
 ## Templates
 
