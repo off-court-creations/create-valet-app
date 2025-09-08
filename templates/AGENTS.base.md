@@ -10,7 +10,7 @@ Use react useState for temporary single-page state and zustand (and local storag
 ## valet-mcp
 
 When available, use the `@archway/valet-mcp` server. !IMPORTANT!
-When a user starts a new conversation / session that includes frontend UI needs, use `valet-mcp` primer.
+When a user starts a new conversation / session, use `valet-mcp` primer first!
 Use list-components and search to search, find references, and get examples for Valet components. 
 Validate props and usage against the MCP to keep UI consistent!
 Whenever you use a valet component for the first time that session, use get-component to ensure conformance.
