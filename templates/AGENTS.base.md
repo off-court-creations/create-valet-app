@@ -14,7 +14,6 @@ When a user starts a new conversation / session that includes frontend UI needs,
 Use list-components and search to search, find references, and get examples for Valet components. 
 Validate props and usage against the MCP to keep UI consistent!
 Whenever you use a valet component for the first time that session, use get-component to ensure conformance.
-To tweak the app’s theme safely, call the MCP command `adjust_theme { appPath, themePatch }` to update `useInitialTheme` in the App file (a backup is written).
 
 ## Agent-Friendly Commands
 
