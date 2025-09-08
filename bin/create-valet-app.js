@@ -229,7 +229,17 @@ function writeJSON(p, obj) {
 function run(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { stdio: 'inherit', ...opts });
-    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}`))));
+    let settled = false;
+    child.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    });
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}`));
+    });
   });
 }
 
@@ -242,7 +252,17 @@ function runQuiet(cmd, args, opts = {}) {
     let errOut = '';
     child.stdout.on('data', (d) => (out += d.toString()));
     child.stderr.on('data', (d) => (errOut += d.toString()));
-    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(errOut.trim() || out.trim() || `${cmd} exited ${code}`))));
+    let settled = false;
+    child.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    });
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      code === 0 ? resolve() : reject(new Error(errOut.trim() || out.trim() || `${cmd} exited ${code}`));
+    });
   });
 }
 
@@ -853,9 +873,19 @@ function execCapture(cmd, args, opts = {}) {
     const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], ...opts });
     let out = '';
     let err = '';
-  child.stdout.on('data', (d) => (out += d.toString()));
-  child.stderr.on('data', (d) => (err += d.toString()));
-  child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(err || `${cmd} exited ${code}`))));
+    child.stdout.on('data', (d) => (out += d.toString()));
+    child.stderr.on('data', (d) => (err += d.toString()));
+    let settled = false;
+    child.on('error', (e) => {
+      if (settled) return;
+      settled = true;
+      reject(e);
+    });
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      code === 0 ? resolve(out) : reject(new Error(err || `${cmd} exited ${code}`));
+    });
   });
 }
 
