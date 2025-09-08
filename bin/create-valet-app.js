@@ -166,11 +166,14 @@ function parseArgs(argv) {
     minimal: false,
     pathAlias: '@',
     help: false,
+    // true if any CLI flag (starts with '-') was supplied
+    hadFlags: false,
   };
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (!out.dir && !a.startsWith('-')) { out.dir = a; continue; }
+    if (a.startsWith('-')) out.hadFlags = true;
     if (a === '--template') { out.template = args[++i]; continue; }
     if (a === '--install') { out.install = true; continue; }
     if (a === '--no-install') { out.install = false; continue; }
@@ -280,8 +283,22 @@ async function main() {
     banner();
   }
 
-  // Interactive prompt when no directory provided
-  if (!opts.dir && interactive) {
+  // New experience: if run without any --flags in an interactive TTY, ask
+  // whether to customize defaults (defaults to "No"). If "Yes", launch a
+  // guided wizard that helps decide flags. If "No", proceed with defaults
+  // and only ask for a directory if missing.
+  if (interactive && !opts.hadFlags) {
+    const change = await promptConfirm('Would you like to change any of the default settings?', false);
+    if (change) {
+      const answers = await promptForFlagsExperience(opts);
+      Object.assign(opts, answers);
+    } else {
+      if (!opts.dir) {
+        opts.dir = await promptForDir(opts.dir || 'valet-app');
+      }
+    }
+  } else if (!opts.dir && interactive) {
+    // Fallback to existing full options prompt when flags are present but dir missing
     const answers = await promptForOptions(opts);
     Object.assign(opts, answers);
   }
@@ -1073,6 +1090,16 @@ async function promptConfirm(message, initial = true) {
   return Boolean(answer);
 }
 
+async function promptForDir(initial = 'valet-app') {
+  const { Input } = enquirer;
+  const dir = await new Input({
+    name: 'dir',
+    message: 'Project directory',
+    initial,
+  }).run();
+  return dir;
+}
+
 async function promptForOptions(defaults) {
   const { Select, Confirm, Input } = enquirer;
 
@@ -1154,4 +1181,76 @@ async function promptForOptions(defaults) {
   console.log();
   done('Configuration ready');
   return { dir, template, router, zustand, minimal, pathAlias, git, mcp, install, pm };
+}
+
+// Guided presets + refinement wizard to help pick a set of flags.
+async function promptForFlagsExperience(defaults) {
+  const { Select } = enquirer;
+
+  // Intro text
+  console.log(boxen(chalk.bold('Customize your Valet app') + '\n' + chalk.dim('Pick a starting preset, then tweak details'), {
+    padding: 1,
+    margin: 0,
+    borderColor: 'cyan',
+    borderStyle: 'round',
+  }));
+  console.log();
+
+  const presets = [
+    {
+      name: 'recommended',
+      message: 'Recommended — TS, Router, Zustand, MCP, Git, Install',
+      values: { template: 'ts', router: true, zustand: true, minimal: false, mcp: true, git: true, install: true },
+    },
+    {
+      name: 'minimal',
+      message: 'Minimal — TS, no Router, no Zustand, Minimal mode',
+      values: { template: 'ts', router: false, zustand: false, minimal: true, mcp: false, git: true, install: false },
+    },
+    {
+      name: 'basic',
+      message: 'Basic — TS, Router, no Zustand',
+      values: { template: 'ts', router: true, zustand: false, minimal: false, mcp: true, git: true, install: true },
+    },
+    {
+      name: 'js-quick',
+      message: 'JS Quick — JS, no Router, no Zustand, Minimal',
+      values: { template: 'js', router: false, zustand: false, minimal: true, mcp: false, git: true, install: false },
+    },
+    {
+      name: 'hybrid-explorer',
+      message: 'Hybrid Explorer — Hybrid TS+JS, Router, Zustand',
+      values: { template: 'hybrid', router: true, zustand: true, minimal: false, mcp: true, git: true, install: true },
+    },
+    {
+      name: 'custom',
+      message: 'Custom — Start from current defaults',
+      values: {},
+    },
+  ];
+
+  const presetName = await new Select({
+    name: 'preset',
+    message: 'Choose a preset',
+    choices: presets.map((p) => ({ name: p.name, message: p.message })),
+    initial: 0,
+  }).run();
+
+  const chosen = presets.find((p) => p.name === presetName) || presets[0];
+  const base = {
+    dir: defaults.dir || 'valet-app',
+    template: defaults.template,
+    install: defaults.install,
+    pm: defaults.pm,
+    git: defaults.git,
+    mcp: defaults.mcp,
+    router: defaults.router,
+    zustand: defaults.zustand,
+    minimal: defaults.minimal,
+    pathAlias: defaults.pathAlias,
+  };
+  Object.assign(base, chosen.values);
+
+  // Now let the user review and refine all options
+  return await promptForOptions(base);
 }
