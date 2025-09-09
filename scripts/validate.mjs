@@ -33,6 +33,10 @@ const scenarios = [
   { id: 'ts:mcp-default', template: 'ts', flags: [], mcp: true, checks: ['agents:ts-default'] },
   { id: 'js:mcp-default', template: 'js', flags: [], mcp: true, checks: ['agents:js-default'] },
   { id: 'hybrid:mcp-custom', template: 'hybrid', flags: ['--no-router', '--no-zustand', '--minimal', '--path-alias', 'app'], mcp: true, checks: ['agents:hybrid-custom'] },
+  // R3F/three opt-in scenarios
+  { id: 'ts:three', template: 'ts', flags: ['--three'], mcp: false, checks: ['three:deps', 'three:quickstart'] },
+  { id: 'js:three', template: 'js', flags: ['--three'], mcp: false, checks: ['three:deps', 'three:quickstart'] },
+  { id: 'hybrid:three-mcp', template: 'hybrid', flags: ['--three'], mcp: true, checks: ['three:deps', 'three:quickstart', 'agents:r3f-policy'] },
 ].filter((s) => (opts.only ? s.id === opts.only : true));
 
 function run(cmd, argv, cwd, env = {}) {
@@ -246,6 +250,34 @@ async function postChecks(appDir, s) {
     if (!/Zustand:\s*disabled/.test(cd)) fail('CLAUDE.md Zustand feature should be disabled');
     if (!/Minimal mode:\s*on/.test(cd)) fail('CLAUDE.md Minimal feature should be on');
     if (!/Path alias token:\s*`app`/.test(cd)) fail('CLAUDE.md should reflect alias token app');
+  }
+
+  // three/R3F checks
+  if (s.checks?.includes('three:deps')) {
+    const pkgRaw = readFileSafe(path.join(appDir, 'package.json')) || '{}';
+    let pkg = {};
+    try { pkg = JSON.parse(pkgRaw); } catch {}
+    const d = (pkg.dependencies || {});
+    if (!d['three']) fail('package.json should include three');
+    if (!d['@react-three/fiber']) fail('package.json should include @react-three/fiber');
+    if (!d['@react-three/drei']) fail('package.json should include @react-three/drei');
+  }
+  if (s.checks?.includes('three:quickstart')) {
+    const jsPath = path.join(appDir, 'src', 'pages', 'start', 'Quickstart.jsx');
+    const tsPath = path.join(appDir, 'src', 'pages', 'start', 'Quickstart.tsx');
+    const src = readFileSafe(jsPath) || readFileSafe(tsPath) || '';
+    if (!/from\s+"@react-three\/fiber"/.test(src)) fail('Quickstart should import from @react-three/fiber');
+    if (!/<Canvas\b/.test(src)) fail('Quickstart should render a <Canvas>');
+    // For hybrid template, ensure .jsx is used when three is enabled
+    if (s.id.startsWith('hybrid:')) {
+      if (!exists(jsPath)) fail('Hybrid 3D Quickstart should be .jsx');
+      if (exists(tsPath)) fail('Hybrid 3D Quickstart should not leave a .tsx file');
+    }
+  }
+  if (s.checks?.includes('agents:r3f-policy')) {
+    const md = readFileSafe(path.join(appDir, 'AGENTS.md')) || '';
+    if (!/R3F Pages Policy/.test(md)) fail('AGENTS.md should include R3F Pages Policy when 3D is enabled on hybrid');
+    if (!/implement them as `\.jsx` files/.test(md)) fail('AGENTS.md should advise .jsx for R3F-heavy pages');
   }
 
   return { ok: msgs.length === 0, log: msgs.join('\n') };

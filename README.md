@@ -56,6 +56,7 @@ Choose with `--template ts|js|hybrid`.
 - `--mcp` / `--no-mcp` include or skip AGENTS.md and CLAUDE.md (Valet MCP guidance). Default: include.
 - `--router` / `--no-router` include or remove React Router (default: include).
 - `--zustand` / `--no-zustand` include or remove Zustand sample store (default: include).
+- `--three` or `--r3f` enables an opt-in 3D experience (React Three Fiber) that installs `three`, `@react-three/fiber`, and `@react-three/drei`, and swaps the Quickstart page to a fullscreen `<Canvas>` with a spinning cube and a Valet HUD overlay. Use `--no-three` to force disable.
 - `--minimal` produce a leaner starter (single page/route where applicable).
 - `--path-alias <token>` change `@` alias token for `src` (e.g., `app`).
 
@@ -121,6 +122,10 @@ node scripts/validate.mjs --only ts:no-router
 ```
 
 Scenarios covered: `ts:default`, `js:default`, `hybrid:default`, `ts:no-router`, `js:minimal`, `hybrid:no-zustand`, `ts:alias-app`.
+
+Additional scenarios exercise the 3D option: `ts:three`, `js:three`, and `hybrid:three-mcp` (which also checks AGENTS.md guidance for R3F pages).
+
+Hybrid template note: when `--three` is enabled, the 3D Quickstart is generated as `.jsx` per the “R3F Pages Policy” (keep R3F-heavy pages in JSX to reduce TS friction; keep UI/logic typed TS).
 
 ## Why CVA
 

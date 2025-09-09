@@ -6,3 +6,4 @@ styleguide
 *.tsbuildinfo
 EXAMPLE
 VALET
+.DS_Store

@@ -146,6 +146,8 @@ function usage() {
   console.log('  ', chalk.green('--no-mcp'), chalk.gray('Disable MCP guidance'));
   console.log('  ', chalk.green('--router|--no-router'), chalk.gray('Include React Router (default: --router)'));
   console.log('  ', chalk.green('--zustand|--no-zustand'), chalk.gray('Include Zustand store (default: --zustand)'));
+  console.log('  ', chalk.green('--three|--r3f'), chalk.gray('Enable 3D (React Three Fiber) experience (default: off)'));
+  console.log('  ', chalk.green('--no-three'), chalk.gray('Disable 3D experience'));
   console.log('  ', chalk.green('--minimal'), chalk.gray('Minimal files (single page; trims extras)'));
   console.log('  ', chalk.green('--path-alias'), chalk.gray('<token>     Import alias for src (default: @)'));
   console.log('  ', chalk.green('-h, --help'), chalk.gray('Show help'));
@@ -163,6 +165,7 @@ function parseArgs(argv) {
     mcp: true,
     router: true,
     zustand: true,
+    three: false,
     minimal: false,
     pathAlias: '@',
     help: false,
@@ -186,6 +189,8 @@ function parseArgs(argv) {
     if (a === '--no-router') { out.router = false; continue; }
     if (a === '--zustand') { out.zustand = true; continue; }
     if (a === '--no-zustand') { out.zustand = false; continue; }
+    if (a === '--three' || a === '--r3f') { out.three = true; continue; }
+    if (a === '--no-three') { out.three = false; continue; }
     if (a === '--minimal') { out.minimal = true; continue; }
     if (a === '--path-alias') { out.pathAlias = args[++i]; continue; }
     if (a === '-h' || a === '--help') { out.help = true; continue; }
@@ -353,7 +358,7 @@ async function main() {
 
   // Apply feature toggles (router/zustand/minimal/path alias)
   await withSpinner('Applying options', async () => {
-    await applyFeatureToggles({ targetDir, template: opts.template, router: opts.router, zustand: opts.zustand, minimal: opts.minimal, pathAlias: opts.pathAlias });
+    await applyFeatureToggles({ targetDir, template: opts.template, router: opts.router, zustand: opts.zustand, minimal: opts.minimal, pathAlias: opts.pathAlias, three: opts.three });
   });
 
   // Generate AGENTS.md from single source template unless --no-mcp
@@ -366,6 +371,7 @@ async function main() {
       zustand: opts.zustand,
       minimal: opts.minimal,
       pathAlias: opts.pathAlias,
+      three: opts.three,
     });
   });
 
@@ -480,7 +486,7 @@ main().catch((e) => {
 
 // ─────────────────────────────────────────────────────────────
 // Feature toggles and file transformations
-async function applyFeatureToggles({ targetDir, template, router, zustand, minimal, pathAlias }) {
+async function applyFeatureToggles({ targetDir, template, router, zustand, minimal, pathAlias, three }) {
   const isJS = template === 'js';
   const exts = {
     main: isJS ? 'jsx' : 'tsx',
@@ -785,6 +791,176 @@ export default function QuickstartPage() {
     const srcDir = p('src');
     rewriteAliasInTree(srcDir, '@/', `${pathAlias}/`);
   }
+
+  // ─────────────────────────────────────────────────────────
+  // Optional 3D (React Three Fiber) experience
+  if (three) {
+    // Ensure dependencies
+    safePkgMutate(files.pkg, (pkg) => {
+      pkg.dependencies = pkg.dependencies || {};
+      if (!pkg.dependencies['three']) pkg.dependencies['three'] = '^0.179.0';
+      if (!pkg.dependencies['@react-three/fiber']) pkg.dependencies['@react-three/fiber'] = '^9.3.0';
+      if (!pkg.dependencies['@react-three/drei']) pkg.dependencies['@react-three/drei'] = '^10.7.0';
+      return pkg;
+    });
+
+    // Replace Quickstart with a fullscreen Canvas + Valet HUD overlay
+    const isJS = template === 'js';
+    const quickstartContent = isJS
+      ? `import React, { useRef } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { Surface, Stack, Panel, Box, Typography, Icon } from "@archway/valet";
+
+function SpinningCube() {
+  const ref = useRef();
+  useFrame((_, dt) => {
+    if (!ref.current) return;
+    ref.current.rotation.x += dt * 0.6;
+    ref.current.rotation.y += dt * 0.9;
+  });
+  return (
+    <mesh ref={ref} position={[0, 0, 0]} castShadow>
+      <boxGeometry args={[1, 1, 1]} />
+      <meshStandardMaterial color="#4bd0d2" roughness={0.4} metalness={0.2} />
+    </mesh>
+  );
+}
+
+export default function QuickstartPage() {
+  return (
+    <Surface>
+      {/* Fullscreen 3D background */}
+      <Canvas
+        shadows
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: -1,
+          background: "#1a2230",
+        }}
+        camera={{ position: [2.5, 2, 3.5], fov: 55 }}
+      >
+        <ambientLight intensity={0.5} />
+        <directionalLight position={[5, 6, 5]} intensity={1} castShadow />
+        <group position={[0, 0, 0]}>
+          <SpinningCube />
+          <mesh
+            rotation={[-Math.PI / 2, 0, 0]}
+            position={[0, -0.51, 0]}
+            receiveShadow
+          >
+            <planeGeometry args={[20, 20]} />
+            <meshStandardMaterial color="#263445" roughness={1} metalness={0} />
+          </mesh>
+        </group>
+      </Canvas>
+
+      {/* Simple Valet UI overlay */}
+      <Box sx={{ position: "relative", pointerEvents: "none" }}>
+        <Box sx={{ position: "fixed", top: "1rem", left: "1rem" }}>
+          <Panel preset="frostedGlass">
+            <Stack direction="row" gap={2}>
+              <Stack direction="row" gap={1}>
+                <Icon icon="mdi:cube-outline" size="md" />
+                <Typography variant="subtitle">Spinning cube</Typography>
+              </Stack>
+              <Stack direction="row" gap={1}>
+                <Icon icon="mdi:vector-triangle" size="md" />
+                <Typography variant="subtitle">R3F + Valet overlay</Typography>
+              </Stack>
+            </Stack>
+          </Panel>
+        </Box>
+      </Box>
+    </Surface>
+  );
+}
+`
+      : `import React from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { Surface, Stack, Panel, Box, Typography, Icon } from "@archway/valet";
+
+function SpinningCube() {
+  const ref = React.useRef(null);
+  useFrame((_, dt) => {
+    const m = ref.current;
+    if (!m) return;
+    // @ts-expect-error dynamic ref typing for demo simplicity
+    m.rotation.x += dt * 0.6;
+    // @ts-expect-error dynamic ref typing for demo simplicity
+    m.rotation.y += dt * 0.9;
+  });
+  return (
+    <mesh ref={ref} position={[0, 0, 0]} castShadow>
+      <boxGeometry args={[1, 1, 1]} />
+      <meshStandardMaterial color="#4bd0d2" roughness={0.4} metalness={0.2} />
+    </mesh>
+  );
+}
+
+export default function QuickstartPage() {
+  return (
+    <Surface>
+      {/* Fullscreen 3D background */}
+      <Canvas
+        shadows
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: -1,
+          background: "#1a2230",
+        }}
+        camera={{ position: [2.5, 2, 3.5], fov: 55 }}
+      >
+        <ambientLight intensity={0.5} />
+        <directionalLight position={[5, 6, 5]} intensity={1} castShadow />
+        <group position={[0, 0, 0]}>
+          <SpinningCube />
+          <mesh
+            rotation={[-Math.PI / 2, 0, 0]}
+            position={[0, -0.51, 0]}
+            receiveShadow
+          >
+            <planeGeometry args={[20, 20]} />
+            <meshStandardMaterial color="#263445" roughness={1} metalness={0} />
+          </mesh>
+        </group>
+      </Canvas>
+
+      {/* Simple Valet UI overlay */}
+      <Box sx={{ position: "relative", pointerEvents: "none" }}>
+        <Box sx={{ position: "fixed", top: "1rem", left: "1rem" }}>
+          <Panel preset="frostedGlass">
+            <Stack direction="row" gap={2}>
+              <Stack direction="row" gap={1}>
+                <Icon icon="mdi:cube-outline" size="md" />
+                <Typography variant="subtitle">Spinning cube</Typography>
+              </Stack>
+              <Stack direction="row" gap={1}>
+                <Icon icon="mdi:vector-triangle" size="md" />
+                <Typography variant="subtitle">R3F + Valet overlay</Typography>
+              </Stack>
+            </Stack>
+          </Panel>
+        </Box>
+      </Box>
+    </Surface>
+  );
+}
+`;
+    try {
+      if (template === 'hybrid') {
+        const jsxPath = p('src', 'pages', 'start', 'Quickstart.jsx');
+        fs.writeFileSync(jsxPath, quickstartContent);
+        // Remove TSX version if present to align with R3F pages policy
+        if (fs.existsSync(files.quickstart)) {
+          try { fs.rmSync(files.quickstart); } catch {}
+        }
+      } else {
+        fs.writeFileSync(files.quickstart, quickstartContent);
+      }
+    } catch {}
+  }
 }
 
 function rewriteAliasInTree(rootDir, fromPrefix, toPrefix) {
@@ -952,7 +1128,7 @@ async function openShellInProject(dir) {
 
 // ─────────────────────────────────────────────────────────────
 // Render single-source AGENTS.md (and CLAUDE.md) tailored to template and flags
-async function generateAgentsDoc({ targetDir, include, template, router, zustand, minimal, pathAlias }) {
+async function generateAgentsDoc({ targetDir, include, template, router, zustand, minimal, pathAlias, three }) {
   const agentsPath = path.join(targetDir, 'AGENTS.md');
   const claudePath = path.join(targetDir, 'CLAUDE.md');
   if (!include) {
@@ -1001,11 +1177,17 @@ async function generateAgentsDoc({ targetDir, include, template, router, zustand
     '- Lint/format clean or auto-fixed.',
   ].join('\n');
 
-  const rendered = base
+  let rendered = base
     .replace('{{LANG_NOTE}}', LANG_NOTE)
     .replace('{{AGENT_COMMANDS}}', AGENT_COMMANDS)
     .replace('{{FEATURES_LIST}}', FEATURES_LIST)
     .replace('{{DOD_LIST}}', DOD_LIST);
+
+  // If 3D experience is enabled and hybrid template is used, append R3F Pages Policy note
+  if (three && isHybrid) {
+    const R3F_POLICY = `\n---\n\nR3F Pages Policy\n\n- For React Three Fiber heavy pages (scenes, start screens with 3D backgrounds, gameplay canvases), implement them as \`.jsx\` files instead of \`.tsx\`.\n- Reason: JSX avoids TypeScript friction with R3F/three element props and keeps iterative scene work fast. Keep TypeScript for UI/logic modules where typing adds the most value.\n`;
+    rendered += '\n' + R3F_POLICY;
+  }
 
   // Write AGENTS.md as-is
   fs.writeFileSync(agentsPath, rendered);
@@ -1148,6 +1330,12 @@ async function promptForOptions(defaults) {
     initial: defaults.zustand !== undefined ? defaults.zustand : true,
   }).run();
 
+  const three = await new Confirm({
+    name: 'three',
+    message: 'Enable 3D (React Three Fiber) experience?',
+    initial: defaults.three !== undefined ? defaults.three : false,
+  }).run();
+
   const minimal = await new Confirm({
     name: 'minimal',
     message: 'Minimal mode (single page)?',
@@ -1196,7 +1384,7 @@ async function promptForOptions(defaults) {
 
   console.log();
   done('Configuration ready');
-  return { dir, template, router, zustand, minimal, pathAlias, git, mcp, install, pm };
+  return { dir, template, router, zustand, three, minimal, pathAlias, git, mcp, install, pm };
 }
 
 // Guided refinement wizard to tweak all flags.
@@ -1220,6 +1408,7 @@ async function promptForFlagsExperience(defaults) {
     mcp: defaults.mcp,
     router: defaults.router,
     zustand: defaults.zustand,
+    three: defaults.three,
     minimal: defaults.minimal,
     pathAlias: defaults.pathAlias,
   };

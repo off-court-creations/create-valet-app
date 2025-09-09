@@ -2,6 +2,11 @@ Changelog
 
 All notable changes to this project are documented here.
 
+0.30.15
+- Added: Optional 3D (React Three Fiber) experience via `--three`/`--r3f` flag or interactive prompt. Installs `three`, `@react-three/fiber`, `@react-three/drei` and swaps Quickstart to a fullscreen `<Canvas>` with a spinning cube and Valet HUD overlay.
+- Added: When `--three` is enabled on the hybrid template, the 3D Quickstart is generated as `.jsx` per the R3F Pages Policy (keep heavy R3F scenes in JSX; keep UI/logic typed TS).
+- Added: Validation scenarios for `--three` (ts/js) and hybrid with MCP to ensure guidance includes the R3F Pages Policy.
+
 0.30.4 — 2025-09-04
 - Changed: Git repos initialize on `main` (no more `master` hints); falls back to branch rename when needed.
 - Changed: Cleaner output — suppresses git and package manager noise so steps show as concise checklists.
