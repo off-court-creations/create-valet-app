@@ -2,6 +2,11 @@ Changelog
 
 All notable changes to this project are documented here.
 
+0.31.0
+- Align: Update CVA to target Valet and MCP 0.31.x minor.
+- Change: Generated apps now depend on `@archway/valet@^0.31.0`.
+- Change: Global MCP install aligns to 0.31.x by default.
+
 0.30.15
 - Added: Optional 3D (React Three Fiber) experience via `--three`/`--r3f` flag or interactive prompt. Installs `three`, `@react-three/fiber`, `@react-three/drei` and swaps Quickstart to a fullscreen `<Canvas>` with a spinning cube and Valet HUD overlay.
 - Added: When `--three` is enabled on the hybrid template, the 3D Quickstart is generated as `.jsx` per the R3F Pages Policy (keep heavy R3F scenes in JSX; keep UI/logic typed TS).

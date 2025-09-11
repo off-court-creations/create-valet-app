@@ -24,7 +24,7 @@ const __dirname = path.dirname(__filename);
 const PKG = readJSONSafe(path.join(__dirname, '..', 'package.json')) || {};
 
 // Determine the target Valet minor line to use for generated apps and MCP.
-// Default behavior: tie to this CLI's own minor (x.MINOR.x), e.g. 0.30.x.
+// Default behavior: tie to this CLI's own minor (x.MINOR.x), e.g. 0.31.x.
 // Overrides: env CVA_VALET_MINOR (e.g. "0.31"), or package.json { cva: { valetMinor } }.
 function resolveValetMinor() {
   // Explicit env override wins
@@ -32,7 +32,7 @@ function resolveValetMinor() {
   // Config override in package.json
   if (PKG && PKG.cva && PKG.cva.valetMinor) return String(PKG.cva.valetMinor);
   // Derive from this package version (use MAJOR.MINOR)
-  const ver = String(PKG.version || '0.30.0');
+  const ver = String(PKG.version || '0.31.0');
   const parts = ver.split('.');
   const major = parts[0] || '0';
   const minor = parts[1] || '30';
@@ -40,7 +40,7 @@ function resolveValetMinor() {
 }
 
 // Produce a semver range that tracks the highest PATCH within the chosen MINOR.
-// For example, minor "0.30" -> "^0.30.0" (for 0.x, caret behaves like patch range within the same minor).
+// For example, minor "0.31" -> "^0.31.0" (for 0.x, caret behaves like patch range within the same minor).
 function valetMinorRange(minor) {
   return `^${minor}.0`;
 }
@@ -54,7 +54,7 @@ function parseSemver(v) {
 }
 
 // Produce a range that locks within the same MINOR and upgrades to latest PATCH.
-// - For 0.x: caret (e.g., ^0.30.0) already locks to same minor.
+// - For 0.x: caret (e.g., ^0.31.0) already locks to same minor.
 // - For 1.x+: use tilde (e.g., ~1.2.0) to keep minor locked.
 function minorLockedRange(major, minor) {
   return Number(major) === 0 ? `^0.${minor}.0` : `~${major}.${minor}.0`;
@@ -1227,7 +1227,7 @@ async function installGlobalMCP() {
       range = minorLockedRange(parsed.major, parsed.minor);
     } else {
       const minor = resolveValetMinor();
-      range = valetMinorRange(minor); // e.g., ^0.30.0
+      range = valetMinorRange(minor); // e.g., ^0.31.0
     }
 
     // Use npm explicitly for global install to match common tooling
